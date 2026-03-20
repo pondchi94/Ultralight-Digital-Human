@@ -3,7 +3,6 @@ import cv2
 import torch
 import random
 import numpy as np
-import random
 
 from torch.utils.data import Dataset
 from torch.utils.data import DataLoader
@@ -30,12 +29,26 @@ class MyDataset(Dataset):
             
         self.audio_feats = self.audio_feats.astype(np.float32)
         
+        # 自动检测音频形状，动态计算 reshape 参数
+        # 音频形状: (total_frames, audio_channels, feature_dim)
+        self.audio_channels = self.audio_feats.shape[1]
+        self.audio_feat_dim = self.audio_feats.shape[2]
+        
+        # 动态计算 reshape 参数: get_audio_features 返回 16帧 × audio_channels × feature_dim
+        # reshape 为 (reshape_c, 32, 32) 格式，与 SyncNet 兼容
+        # 公式: reshape_c = 16 * audio_channels * feature_dim / (32 * 32)
+        num_frames = 16
+        total_elements = num_frames * self.audio_channels * self.audio_feat_dim
+        self.reshape_c = total_elements // (32 * 32)
+        self.reshape_h = 32
+        self.reshape_w = 32
+        
     def __len__(self):
-        return self.audio_feats.shape[0] if self.audio_feats[0]<len(self.img_path_list) else len(self.img_path_list)
+        return self.audio_feats.shape[0] if self.audio_feats.shape[0]<len(self.img_path_list) else len(self.img_path_list)
     
-    def get_audio_features(self, features, index):  # 在当前音频帧前后各取4帧音频特征
-        left = index - 4
-        right = index + 4
+    def get_audio_features(self, features, index):
+        left = index - 8
+        right = index + 8
         pad_left = 0
         pad_right = 0
         if left < 0:
@@ -48,7 +61,7 @@ class MyDataset(Dataset):
         if pad_left > 0:
             auds = torch.cat([torch.zeros_like(auds[:pad_left]), auds], dim=0)
         if pad_right > 0:
-            auds = torch.cat([auds, torch.zeros_like(auds[:pad_right])], dim=0) # [8, 16]
+            auds = torch.cat([auds, torch.zeros_like(auds[:pad_right])], dim=0)
         return auds
     
     
@@ -117,11 +130,6 @@ class MyDataset(Dataset):
         img_concat_T, img_real_T = self.process_img(img, lms_path, img_ex, lms_path_ex) ## 图像处理
         audio_feat = self.get_audio_features(self.audio_feats, idx)  ## 音频特征处理
         
-        if self.mode == "wenet":
-            audio_feat = audio_feat.reshape(128,16,32)
-        if self.mode == "hubert":
-            audio_feat = audio_feat.reshape(16,32,32)  ## 这个地方的16 / 128跟合并起来的音频特征帧数有关
+        audio_feat = audio_feat.reshape(self.reshape_c, self.reshape_h, self.reshape_w)
         
-        return img_concat_T, img_real_T, audio_feat
-    
-        
+        return img_concat_T, img_real_T, audio_feat, self.reshape_c   

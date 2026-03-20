@@ -65,49 +65,46 @@ def cosine_loss(a, v, y):
 
     return loss
 
-def train(net, epoch, batch_size, lr):
+def train(dataset_dir, save_dir, asr_mode, epoch, batch_size, lr, use_syncnet_flag, syncnet_ckpt_path):
     content_loss = PerceptualLoss(torch.nn.MSELoss())
-    if use_syncnet:
-        if args.syncnet_checkpoint == "":
-            raise ValueError("Using syncnet, you need to set 'syncnet_checkpoint'.Please check README")
-            
-        syncnet = SyncNet_color(args.asr).eval().to(device)
-        syncnet.load_state_dict(torch.load(args.syncnet_checkpoint))
-    save_dir= args.save_dir
+    
+    dataset = MyDataset(dataset_dir, asr_mode)
+    audio_channels = dataset.reshape_c
+    
     if not os.path.exists(save_dir):
-        os.mkdir(save_dir)
-    dataloader_list = []
-    dataset_list = []
-    dataset_dir_list = [args.dataset_dir]
-    for dataset_dir in dataset_dir_list:
-        dataset = MyDataset(dataset_dir, args.asr)
-        train_dataloader = DataLoader(dataset, batch_size=16, shuffle=True, drop_last=False, num_workers=4)
-        dataloader_list.append(train_dataloader)
-        dataset_list.append(dataset)
+        os.makedirs(save_dir, exist_ok=True)
+    
+    net = Model(6, asr_mode, audio_channels=audio_channels).to(device)
+    
+    train_dataloader = DataLoader(dataset, batch_size=16, shuffle=True, drop_last=False, num_workers=4)
+    
+    if use_syncnet_flag:
+        if syncnet_ckpt_path == "":
+            raise ValueError("Using syncnet, you need to set 'syncnet_checkpoint'.Please check README")
+        print(f"[SyncNet] 动态适配音频通道数: {audio_channels}")
+        syncnet = SyncNet_color(asr_mode, audio_channels=audio_channels).eval().to(device)
+        syncnet.load_state_dict(torch.load(syncnet_ckpt_path))
     
     optimizer = optim.Adam(net.parameters(), lr=lr)
     criterion = nn.L1Loss()
     
     for e in range(epoch):
         net.train()
-        random_i = random.randint(0, len(dataset_dir_list)-1)
-        dataset = dataset_list[random_i]
-        train_dataloader = dataloader_list[random_i]
         
         with tqdm(total=len(dataset), desc=f'Epoch {e + 1}/{epoch}', unit='img') as p:
             for batch in train_dataloader:
-                imgs, labels, audio_feat = batch
+                imgs, labels, audio_feat, _ = batch
                 imgs = imgs.to(device)
                 labels = labels.to(device)
                 audio_feat = audio_feat.to(device)
                 preds = net(imgs, audio_feat)
-                if use_syncnet:
+                if use_syncnet_flag:
                     y = torch.ones([preds.shape[0],1]).float().to(device)
                     a, v = syncnet(preds, audio_feat)
                     sync_loss = cosine_loss(a, v, y)
                 loss_PerceptualLoss = content_loss.get_loss(preds, labels)
                 loss_pixel = criterion(preds, labels)
-                if use_syncnet:
+                if use_syncnet_flag:
                     loss = loss_pixel + loss_PerceptualLoss*0.01 + 10*sync_loss
                 else:
                     loss = loss_pixel + loss_PerceptualLoss*0.01
@@ -121,7 +118,7 @@ def train(net, epoch, batch_size, lr):
             torch.save(net.state_dict(), os.path.join(save_dir, str(e)+'.pth'))
         if args.see_res:
             net.eval()
-            img_concat_T, img_real_T, audio_feat = dataset.__getitem__(random.randint(0, dataset.__len__()))
+            img_concat_T, img_real_T, audio_feat, _ = dataset.__getitem__(random.randint(0, dataset.__len__()))
             img_concat_T = img_concat_T[None].to(device)
             audio_feat = audio_feat[None].to(device)
             with torch.no_grad():
@@ -136,7 +133,4 @@ def train(net, epoch, batch_size, lr):
             
 
 if __name__ == '__main__':
-    
-    
-    net = Model(6, args.asr).to(device)
-    train(net, args.epochs, args.batchsize, args.lr)
+    train(args.dataset_dir, args.save_dir, args.asr, args.epochs, args.batchsize, args.lr, use_syncnet, args.syncnet_checkpoint)

@@ -2,20 +2,25 @@ import os
 import cv2
 import argparse
 import numpy as np
+import subprocess
+
+from pathlib import Path
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
 
 def extract_audio(path, out_path, sample_rate=16000):
     
     print(f'[INFO] ===== extract audio from {path} to {out_path} =====')
-    cmd = f'ffmpeg -i {path} -f wav -ar {sample_rate} {out_path}'
-    os.system(cmd)
+    cmd = f'ffmpeg -y -i "{path}" -f wav -ar {sample_rate} "{out_path}"'
+    subprocess.run(cmd, shell=True, check=True)
     print(f'[INFO] ===== extracted audio =====')
     
-def extract_images(path, mode):
+def extract_images(path, output_dir, mode):
     
-    
-    full_body_dir = path.replace(path.split("/")[-1], "full_body_img")
+    full_body_dir = os.path.join(output_dir, "full_body_img")
     if not os.path.exists(full_body_dir):
-        os.mkdir(full_body_dir)
+        os.makedirs(full_body_dir, exist_ok=True)
     
     counter = 0
     cap = cv2.VideoCapture(path)
@@ -30,21 +35,31 @@ def extract_images(path, mode):
         ret, frame = cap.read()
         if not ret:
             break
-        cv2.imwrite(full_body_dir+"/"+str(counter)+'.jpg', frame)
+        cv2.imwrite(os.path.join(full_body_dir, str(counter)+'.jpg'), frame)
         counter += 1
         
-def get_audio_feature(wav_path, mode):
+def get_audio_feature(wav_path, output_dir, mode):
     
     print("extracting audio feature...")
+    npy_filename = 'aud_wenet.npy' if mode == "wenet" else 'aud_hu.npy'
+    npy_path = os.path.join(output_dir, npy_filename)
     
     if mode == "wenet":
-        os.system("python wenet_infer.py "+wav_path)
+        subprocess.run(
+            f'cd "{SCRIPT_DIR}" && python wenet_infer.py "{wav_path}" --output "{npy_path}"',
+            shell=True, check=True
+        )
     if mode == "hubert":
-        os.system("python hubert.py --wav "+wav_path)
+        subprocess.run(
+            f'cd "{SCRIPT_DIR}" && python hubert.py --wav "{wav_path}" --output "{npy_path}"',
+            shell=True, check=True
+        )
     
-def get_landmark(path, landmarks_dir):
+def get_landmark(output_dir):
     print("detecting landmarks...")
-    full_img_dir = path.replace(path.split("/")[-1], "full_body_img")
+    full_img_dir = os.path.join(output_dir, "full_body_img")
+    landmarks_dir = os.path.join(output_dir, "landmarks")
+    os.makedirs(landmarks_dir, exist_ok=True)
     
     from get_landmark import Landmark
     landmark = Landmark()
@@ -65,21 +80,36 @@ def get_landmark(path, landmarks_dir):
 
 if __name__ == "__main__":
     
-    parser = argparse.ArgumentParser()
-    parser.add_argument('path', type=str, help="path to video file")
+    parser = argparse.ArgumentParser(description='Process video for digital human training')
+    parser.add_argument('--video', type=str, help="path to video file")
     parser.add_argument('--asr', type=str, default='hubert', help="wenet or hubert")
+    parser.add_argument('--outdir', type=str, default=None, 
+                        help="output directory (default: ./output/<video_name>/)")
     opt = parser.parse_args()
     asr_mode = opt.asr
-
-    base_dir = os.path.dirname(opt.path)
-    wav_path = os.path.join(base_dir, 'aud.wav')
-    landmarks_dir = os.path.join(base_dir, 'landmarks')
-
-    os.makedirs(landmarks_dir, exist_ok=True)
+    video_path = os.path.abspath(opt.video)
+    video_name = Path(video_path).stem
+    if opt.outdir:
+        output_dir = os.path.join(os.path.abspath(opt.outdir), video_name)
+    else:
+        output_dir = os.path.join(PROJECT_ROOT, 'output', video_name)
     
-    extract_audio(opt.path, wav_path)
-    extract_images(opt.path, asr_mode)
-    get_landmark(opt.path, landmarks_dir)
-    get_audio_feature(wav_path, asr_mode)
+    os.makedirs(output_dir, exist_ok=True)
+    print(f'[INFO] Output directory: {output_dir}')
+    
+    wav_path = os.path.join(output_dir, 'aud.wav')
+    
+    extract_audio(video_path, wav_path)
+    extract_images(video_path, output_dir, asr_mode)
+    get_landmark(output_dir)
+    get_audio_feature(wav_path, output_dir, asr_mode)
+    
+    print(f'[INFO] ===== processing complete =====')
+    print(f'[INFO] Output files are in: {output_dir}')
+    print(f'[INFO]   - aud.wav: audio file')
+    print(f'[INFO]   - full_body_img/: extracted video frames')
+    print(f'[INFO]   - landmarks/: detected facial landmarks')
+    print(f'[INFO]   - aud_hu.npy or aud_wenet.npy: audio features')
+
     
     

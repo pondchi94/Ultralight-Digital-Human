@@ -472,6 +472,7 @@ if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('audio_path', type=str)
+    parser.add_argument('--output', type=str, default=None, help='output npy file path')
     opt = parser.parse_args()
     
     import time
@@ -577,4 +578,11 @@ if __name__ == '__main__':
     print(aud_npy.shape)
     t2 = time.time()
     print(t2-t1)
-    np.save(audio_path.replace(".wav", "_wenet.npy"), aud_npy)
+    
+    if args.output:
+        output_path = args.output
+    else:
+        output_path = audio_path.replace(".wav", "_wenet.npy")
+    
+    np.save(output_path, aud_npy)
+    print(f'Saved to: {output_path}')

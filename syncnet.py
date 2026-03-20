@@ -32,6 +32,12 @@ class Dataset(object):
         self.audio_feats = np.load(audio_feats_path)
         self.audio_feats = self.audio_feats.astype(np.float32)
         
+        audio_channels = self.audio_feats.shape[1]
+        audio_feat_dim = self.audio_feats.shape[2]
+        num_frames = 16
+        total_elements = num_frames * audio_channels * audio_feat_dim
+        self.reshape_c = total_elements // (32 * 32)
+        
     def __len__(self):
 
         return self.audio_feats.shape[0]-1
@@ -52,7 +58,7 @@ class Dataset(object):
         if pad_left > 0:
             auds = torch.cat([torch.zeros_like(auds[:pad_left]), auds], dim=0)
         if pad_right > 0:
-            auds = torch.cat([auds, torch.zeros_like(auds[:pad_right])], dim=0) # [8, 16]
+            auds = torch.cat([auds, torch.zeros_like(auds[:pad_right])], dim=0)
         return auds
     
     def process_img(self, img, lms_path, img_ex, lms_path_ex):
@@ -90,12 +96,8 @@ class Dataset(object):
         lms_path_ex = self.lms_path_list[ex_int]
         
         img_real_T = self.process_img(img, lms_path, img_ex, lms_path_ex)
-        audio_feat = self.get_audio_features(self.audio_feats, idx) # 
-        # print(audio_feat.shape)
-        if self.mode=="wenet":
-            audio_feat = audio_feat.reshape(256,16,32)
-        if self.mode=="hubert":
-            audio_feat = audio_feat.reshape(32,32,32)
+        audio_feat = self.get_audio_features(self.audio_feats, idx)
+        audio_feat = audio_feat.reshape(self.reshape_c, 32, 32)
         y = torch.ones(1).float()
         
         return img_real_T, audio_feat, y
@@ -142,8 +144,11 @@ class Conv2dTranspose(nn.Module):
         return self.act(out)
 
 class SyncNet_color(nn.Module):
-    def __init__(self, mode):
+    def __init__(self, mode, audio_channels=None):
         super(SyncNet_color, self).__init__()
+        self.mode = mode
+        # 动态获取音频通道数，默认为16（兼容旧checkpoint）
+        self.audio_channels = audio_channels if audio_channels else 16
 
         self.face_encoder = nn.Sequential(
             Conv2d(3, 32, kernel_size=(7, 7), stride=1, padding=3),
@@ -169,11 +174,9 @@ class SyncNet_color(nn.Module):
             Conv2d(512, 512, kernel_size=3, stride=1, padding=0),
             Conv2d(512, 512, kernel_size=1, stride=1, padding=0),)
         
-        p1 = 256
-        p2 = (1, 2)
-        if mode == "hubert":
-            p1 = 32
-            p2 = (2, 2)
+        # 根据 mode 和实际音频通道数动态设置
+        p1 = self.audio_channels  # 使用动态通道数
+        p2 = (2, 2) if mode == "hubert" else (1, 2)
         
         self.audio_encoder = nn.Sequential(
             Conv2d(p1, 256, kernel_size=3, stride=1, padding=1),
@@ -219,10 +222,12 @@ def train(save_dir, dataset_dir, mode):
         os.mkdir(save_dir)
         
     train_dataset = Dataset(dataset_dir, mode=mode)
+    audio_channels = train_dataset.reshape_c
+    print(f"[SyncNet] Auto-detected audio channels: {audio_channels}")
     train_data_loader = DataLoader(
         train_dataset, batch_size=16, shuffle=True,
         num_workers=4)
-    model = SyncNet_color(mode).cuda()
+    model = SyncNet_color(mode, audio_channels=audio_channels).cuda()
     optimizer = optim.Adam([p for p in model.parameters() if p.requires_grad],
                            lr=0.001)
     for epoch in range(40):

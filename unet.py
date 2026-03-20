@@ -130,11 +130,10 @@ class AudioConvWenet(nn.Module):
         return x
     
 class AudioConvHubert(nn.Module):
-    def __init__(self):
+    def __init__(self, in_channels=16):
         super(AudioConvHubert, self).__init__()
-        # ch = [16, 32, 64, 128, 256]   # if you want to run this model on a mobile device, use this. 
         ch = [32, 64, 128, 256, 512]
-        self.conv1 = InvertedResidual(16, ch[1], stride=1, use_res_connect=False, expand_ratio=2)
+        self.conv1 = InvertedResidual(in_channels, ch[1], stride=1, use_res_connect=False, expand_ratio=2)
         self.conv2 = InvertedResidual(ch[1], ch[2], stride=1, use_res_connect=False, expand_ratio=2)
         
         self.conv3 = nn.Conv2d(ch[2], ch[3], kernel_size=3, padding=1, stride=(2,2))
@@ -166,14 +165,13 @@ class AudioConvHubert(nn.Module):
         return x
 
 class Model(nn.Module):
-    def __init__(self,n_channels=6, mode='wenet'):
+    def __init__(self,n_channels=6, mode='wenet', audio_channels=16):
         super(Model, self).__init__()
         self.n_channels = n_channels   #BGR
-        # ch = [16, 32, 64, 128, 256]  # if you want to run this model on a mobile device, use this. 
         ch = [32, 64, 128, 256, 512]
         
         if mode=='hubert':
-            self.audio_model = AudioConvHubert()
+            self.audio_model = AudioConvHubert(in_channels=audio_channels)
         if mode=='wenet':
             self.audio_model = AudioConvWenet()
             

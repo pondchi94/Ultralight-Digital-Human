@@ -4,6 +4,7 @@ dataset
 *.npy
 __pycache__
 *.mp4
+output
 checkpoint
 syncnet_checkpoint
 *.jpg

@@ -1,0 +1,7 @@
+opencv-python
+transformers
+soundfile
+librosa
+onnxruntime
+mkl
+numpy
