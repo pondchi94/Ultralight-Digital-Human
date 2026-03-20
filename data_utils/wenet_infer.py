@@ -471,13 +471,13 @@ def to_numpy(tensor):
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('audio_path', type=str)
+    parser.add_argument('--wav', type=str)
     parser.add_argument('--output', type=str, default=None, help='output npy file path')
     opt = parser.parse_args()
     
     import time
 
-    audio_path = opt.audio_path
+    audio_path = opt.wav
     
     
     with open('conf/decode_engine_V4.yaml', 'r') as fin:
