@@ -46,7 +46,7 @@ def get_audio_feature(wav_path, output_dir, mode):
     
     if mode == "wenet":
         subprocess.run(
-            f'cd "{SCRIPT_DIR}" && python wenet_infer.py "{wav_path}" --output "{npy_path}"',
+            f'cd "{SCRIPT_DIR}" && python wenet_infer.py --wav "{wav_path}" --output "{npy_path}"',
             shell=True, check=True
         )
     if mode == "hubert":
